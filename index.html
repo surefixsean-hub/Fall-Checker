@@ -56,6 +56,34 @@
     .v{font-size:18px; font-weight:800}
 
     .controls{flex: 1 1 320px; min-width: 300px}
+let startAngle = null;
+let endAngle = null;
+
+addButton("Set Start", ()=>{
+  startAngle = readings[readings.length-1] || 0;
+});
+
+addButton("Set Finish", ()=>{
+
+  endAngle = readings[readings.length-1] || 0;
+
+  if(startAngle === null){
+    alert("Set start first");
+    return;
+  }
+
+  const diff = endAngle - startAngle;
+
+  let percent = Math.abs(Math.tan(diff * Math.PI/180))*100;
+  let ratio = 100/percent;
+
+  let run = parseFloat(runInput.value) || 1000;
+  let fall = run * percent/100;
+
+  percentEl.innerText = percent.toFixed(2) + "%";
+  ratioEl.innerText = "1:" + ratio.toFixed(0);
+  riseEl.innerText = fall.toFixed(1) + " mm";
+});
 
     button{
       border:1px solid var(--border);
@@ -208,176 +236,119 @@
 (() => {
 
 let readings = [];
-const MAX_READINGS = 30;
+const MAX = 30;
 
 let offset = 0;
 let isHeld = false;
+
+let inspectionMode = false;
+let startCaptured = false;
+let startAngle = 0;
+
 let photoData = null;
 
-// UI
 const percentEl = document.getElementById("slopePercent");
 const ratioEl = document.getElementById("ratioText");
-const riseEl = document.getElementById("riseFall");
+const fallEl = document.getElementById("riseFall");
 const statusEl = document.getElementById("statusPill");
+
 const runInput = document.getElementById("runInput");
 
-// ===== ADD BUTTON HELPER =====
-function addButton(text, fn){
-  const b = document.createElement("button");
+// -------- BUTTON HELPER --------
+function addBtn(text, fn){
+  let b = document.createElement("button");
   b.innerText = text;
   b.style.margin="5px";
   b.onclick = fn;
   document.body.appendChild(b);
 }
 
-// ===== PHOTO ATTACH =====
-const photoInput = document.createElement("input");
-photoInput.type = "file";
-photoInput.accept = "image/*";
-photoInput.style.display="block";
-
-photoInput.onchange = (e)=>{
-  const file = e.target.files[0];
-  const reader = new FileReader();
-  reader.onload = (ev)=>{
-    photoData = ev.target.result;
-  };
-  reader.readAsDataURL(file);
+// -------- PHOTO --------
+let file = document.createElement("input");
+file.type = "file";
+file.accept = "image/*";
+file.onchange = e=>{
+  let r = new FileReader();
+  r.onload = ev=> photoData = ev.target.result;
+  r.readAsDataURL(e.target.files[0]);
 };
+document.body.appendChild(file);
 
-document.body.appendChild(photoInput);
+// -------- NCC PRESETS --------
+addBtn("Shower 1:80-1:50", ()=>setPreset(80,50));
+addBtn("Bathroom 1:100-1:60", ()=>setPreset(100,60));
+addBtn("Laundry 1:100-1:60", ()=>setPreset(100,60));
 
-// ===== NCC PRESETS =====
-addButton("Preset: Shower (1:80–1:50)", ()=> setPreset(80,50));
-addButton("Preset: Bathroom (1:100–1:60)", ()=> setPreset(100,60));
-addButton("Preset: Laundry (1:100–1:60)", ()=> setPreset(100,60));
-
-function setPreset(flat, steep){
-  document.getElementById("flatInput").value = flat;
-  document.getElementById("steepInput").value = steep;
+function setPreset(f,s){
+  document.getElementById("flatInput").value=f;
+  document.getElementById("steepInput").value=s;
 }
 
-// ===== PDF BUTTON =====
-addButton("Save PDF", savePDF);
+// -------- ONE TAP --------
+addBtn("START INSPECTION", startInspection);
+addBtn("Save PDF", savePDF);
 
-// ===== MATH =====
-function getPercent(angle){
-  return Math.abs(Math.tan(angle * Math.PI/180))*100;
+function startInspection(){
+  inspectionMode = true;
+  startCaptured = false;
+  alert("Hold phone at start and keep still");
 }
 
-function getRatio(p){
-  if(p<=0) return null;
-  return 100/p;
-}
-
-// ===== SMOOTHING =====
+// -------- MATH --------
 function smooth(v){
   readings.push(v);
-  if(readings.length > MAX_READINGS) readings.shift();
+  if(readings.length>MAX) readings.shift();
   return readings.reduce((a,b)=>a+b,0)/readings.length;
 }
 
-// ===== UPDATE DISPLAY =====
+function percent(a){
+  return Math.abs(Math.tan(a*Math.PI/180))*100;
+}
+
+function isStable(){
+  if(readings.length<10) return false;
+  let s = readings.slice(-10);
+  let avg = s.reduce((a,b)=>a+b)/s.length;
+  let dev = s.reduce((a,b)=>a+Math.abs(b-avg),0)/s.length;
+  return dev < 0.2;
+}
+
+// -------- UPDATE --------
 function update(angle){
 
   if(isHeld) return;
 
-  let corrected = angle - offset;
-  let smoothAngle = smooth(corrected);
+  let a = smooth(angle - offset);
 
-  let percent = getPercent(smoothAngle);
-  let ratio = getRatio(percent);
+  let p = percent(a);
+  let r = 100/p;
 
   let run = parseFloat(runInput.value) || 1000;
-  let fall = run * percent/100;
+  let fall = run * p/100;
 
-  percentEl.innerText = percent.toFixed(2) + "%";
-  ratioEl.innerText = ratio ? "1:" + ratio.toFixed(0) : "—";
-  riseEl.innerText = fall.toFixed(1) + " mm";
+  percentEl.innerText = p.toFixed(2)+"%";
+  ratioEl.innerText = "1:"+r.toFixed(0);
+  fallEl.innerText = fall.toFixed(1)+" mm";
 
   let flat = parseFloat(document.getElementById("flatInput").value);
   let steep = parseFloat(document.getElementById("steepInput").value);
 
-  let minFall = run / flat;
-  let maxFall = run / steep;
+  let min = run/flat;
+  let max = run/steep;
 
-  let compliant = fall >= minFall && fall <= maxFall;
-
-  if(compliant){
-    statusEl.innerText = "COMPLIANT";
-    statusEl.style.color = "green";
+  if(fall>=min && fall<=max){
+    statusEl.innerText="COMPLIANT";
+    statusEl.style.color="green";
   } else {
-    statusEl.innerText = "NON-COMPLIANT";
-    statusEl.style.color = "red";
+    statusEl.innerText="NON-COMPLIANT";
+    statusEl.style.color="red";
   }
-}
 
-// ===== SENSOR =====
-function handle(e){
-  let angle = e.beta;
-  if(typeof angle === "number"){
-    update(angle);
-  }
-}
+  // -------- ONE TAP MODE --------
+  if(inspectionMode){
 
-async function enableMotion(){
-  if(typeof DeviceOrientationEvent.requestPermission === "function"){
-    await DeviceOrientationEvent.requestPermission();
-  }
-  window.addEventListener("deviceorientation", handle);
-}
-
-document.getElementById("enableBtn").onclick = enableMotion;
-
-// ===== CONTROLS =====
-document.getElementById("calBtn").onclick = ()=>{
-  offset = readings[readings.length-1] || 0;
-};
-
-document.getElementById("holdBtn").onclick = ()=>{
-  isHeld = !isHeld;
-};
-
-// ===== PDF =====
-function savePDF(){
-
-  let percent = percentEl.innerText;
-  let ratio = ratioEl.innerText;
-  let fall = riseEl.innerText;
-  let run = runInput.value;
-
-  let flat = document.getElementById("flatInput").value;
-  let steep = document.getElementById("steepInput").value;
-
-  let minFall = run / flat;
-  let maxFall = run / steep;
-
-  let date = new Date().toLocaleString();
-
-  let imgHTML = photoData 
-    ? `<img src="${photoData}" style="max-width:100%; margin-top:10px;">` 
-    : "<p>No photo</p>";
-
-  let html = `
-  <html>
-  <body>
-    <h2>Fall Inspection Record</h2>
-    <p>Date: ${date}</p>
-    <p>Slope: ${percent}</p>
-    <p>Ratio: ${ratio}</p>
-    <p>Distance: ${run} mm</p>
-    <p>Measured Fall: ${fall}</p>
-    <p>Required Fall: ${minFall.toFixed(1)} → ${maxFall.toFixed(1)} mm</p>
-    ${imgHTML}
-  </body>
-  </html>`;
-
-  let w = window.open("");
-  w.document.write(html);
-  w.print();
-}
-
-})();
-</script>
+    if(!startCaptured && isStable()){
+      startAngle = readings[readings.length-1];
+      startCaptured = true;
 </body>
 </html>
