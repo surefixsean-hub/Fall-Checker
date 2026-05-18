@@ -56,34 +56,7 @@
     .v{font-size:18px; font-weight:800}
 
     .controls{flex: 1 1 320px; min-width: 300px}
-let startAngle = null;
-let endAngle = null;
 
-addButton("Set Start", ()=>{
-  startAngle = readings[readings.length-1] || 0;
-});
-
-addButton("Set Finish", ()=>{
-
-  endAngle = readings[readings.length-1] || 0;
-
-  if(startAngle === null){
-    alert("Set start first");
-    return;
-  }
-
-  const diff = endAngle - startAngle;
-
-  let percent = Math.abs(Math.tan(diff * Math.PI/180))*100;
-  let ratio = 100/percent;
-
-  let run = parseFloat(runInput.value) || 1000;
-  let fall = run * percent/100;
-
-  percentEl.innerText = percent.toFixed(2) + "%";
-  ratioEl.innerText = "1:" + ratio.toFixed(0);
-  riseEl.innerText = fall.toFixed(1) + " mm";
-});
 
     button{
       border:1px solid var(--border);
