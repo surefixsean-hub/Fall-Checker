@@ -195,3 +195,23 @@ function update(angle){
 
    percentEl.innerText = p2.toFixed(2)+"%";
    ratioEl.innerText = "1:"+r2.toFixed(0);
+   fallEl.innerText = fall2.toFixed(1)+" mm\nRequired: "+min.toFixed(1)+"–"+max.toFixed(1)+" mm";
+
+   let compliant2 = (fall2>=min && fall2<=max);
+
+   statusEl.innerText = compliant2 ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
+   statusEl.style.color = compliant2 ? "green" : "red";
+
+   inspectionMode=false;
+
+   alert("Inspection complete ✅");
+  }
+ }
+
+}
+
+})();
+</script>
+
+</body>
+</html>
