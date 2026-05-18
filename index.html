@@ -2,17 +2,41 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body {
+  font-family: Arial;
+  text-align: center;
+}
+
+.card {
+  border: 1px solid #ccc;
+  padding: 15px;
+  margin: 10px;
+  border-radius: 10px;
+}
+
+button {
+  margin:5px;
+  padding:10px;
+  font-size:14px;
+}
+</style>
+
 </head>
 
 <body>
 
 <h2>Fall Checker</h2>
 
-<p id="statusPill">NOT RUNNING</p>
-<p id="slopePercent">0%</p>
-<p id="ratioText">1:0</p>
-<p id="riseFall">0 mm</p>
+<div class="card">
+  <h3 id="statusPill">NOT RUNNING</h3>
+  <h1 id="slopePercent">0%</h1>
+  <h3 id="ratioText">1:0</h3>
+  <p id="riseFall">0 mm</p>
+</div>
 
+<div class="card">
 <label>Distance (mm)</label><br>
 <input id="runInput" value="1500"><br><br>
 
@@ -20,9 +44,10 @@
 <input id="flatInput" value="80"><br>
 
 <label>Steepest (1:N)</label><br>
-<input id="steepInput" value="50"><br><br>
+<input id="steepInput" value="50">
+</div>
 
-<div id="panel"></div>
+<div id="panel" class="card"></div>
 
 <script>
 (() => {
@@ -35,6 +60,7 @@ let inspectionMode = false;
 let stage = 0;
 let startAngle = 0;
 
+// ===== UI =====
 const percentEl = document.getElementById("slopePercent");
 const ratioEl = document.getElementById("ratioText");
 const fallEl = document.getElementById("riseFall");
@@ -43,26 +69,23 @@ const runInput = document.getElementById("runInput");
 
 const panel = document.getElementById("panel");
 
-// ===== BUTTON MAKER =====
+// ===== BUTTONS =====
 function addBtn(txt, fn){
   let b = document.createElement("button");
   b.innerText = txt;
-  b.style.margin = "5px";
   b.onclick = fn;
   panel.appendChild(b);
 }
 
-// ===== BUTTONS =====
 addBtn("Enable Motion", enable);
 addBtn("Calibrate", calibrate);
 addBtn("START INSPECTION", startInspection);
 
-// presets
-addBtn("Shower 1:80-1:50", ()=>setPreset(80,50));
-addBtn("Bathroom 1:100-1:60", ()=>setPreset(100,60));
-addBtn("Laundry 1:100-1:60", ()=>setPreset(100,60));
+addBtn("Shower", ()=>setPreset(80,50));
+addBtn("Bathroom", ()=>setPreset(100,60));
+addBtn("Laundry", ()=>setPreset(100,60));
 
-// ===== HELPERS =====
+// ===== FUNCTIONS =====
 function setPreset(f,s){
  document.getElementById("flatInput").value=f;
  document.getElementById("steepInput").value=s;
@@ -71,7 +94,7 @@ function setPreset(f,s){
 function smooth(v){
  readings.push(v);
  if(readings.length>20) readings.shift();
- return readings.reduce((a,b)=>a+b,0)/readings.length;
+ return readings.reduce((a,b)=>a+b)/readings.length;
 }
 
 function percent(a){
@@ -83,14 +106,14 @@ function isStable(){
  let s=readings.slice(-10);
  let avg=s.reduce((a,b)=>a+b)/s.length;
  let dev=s.reduce((a,b)=>a+Math.abs(b-avg),0)/s.length;
- return dev < 0.2;
+ return dev < 0.25; // more forgiving
 }
 
 function movedEnough(){
  if(readings.length<10) return false;
  let first=readings[readings.length-10];
  let last=readings[readings.length-1];
- return Math.abs(last-first)>2;
+ return Math.abs(last-first)>1; // LOWER threshold (better)
 }
 
 // ===== MOTION =====
@@ -121,7 +144,7 @@ function startInspection(){
  alert("Hold at start");
 }
 
-// ===== MAIN UPDATE =====
+// ===== UPDATE =====
 function update(angle){
 
  let a = smooth(angle-offset);
@@ -141,9 +164,12 @@ function update(angle){
  let min=run/flat;
  let max=run/steep;
 
- statusEl.innerText = (fall>=min && fall<=max) ? "COMPLIANT" : "NON-COMPLIANT";
+ let compliant = (fall>=min && fall<=max);
 
- // ===== ONE TAP INSPECTION =====
+ statusEl.innerText = compliant ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
+ statusEl.style.color = compliant ? "green" : "red";
+
+ // ===== INSPECTION =====
  if(inspectionMode){
 
   if(stage===0 && isStable()){
@@ -169,7 +195,10 @@ function update(angle){
    ratioEl.innerText = "1:"+r2.toFixed(0);
    fallEl.innerText = fall2.toFixed(1)+" mm";
 
-   statusEl.innerText=(fall2>=min && fall2<=max)?"COMPLIANT":"NON-COMPLIANT";
+   let compliant2 = (fall2>=min && fall2<=max);
+
+   statusEl.innerText = compliant2 ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
+   statusEl.style.color = compliant2 ? "green" : "red";
 
    inspectionMode=false;
 
