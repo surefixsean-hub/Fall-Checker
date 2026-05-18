@@ -4,19 +4,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
-body { font-family: Arial; text-align: center; }
+body {
+  font-family: Arial;
+  margin:0;
+  background:#f5f6fa;
+  text-align:center;
+}
+
+.header {
+  background:#2f3640;
+  color:white;
+  padding:15px;
+}
 
 .card {
-  border: 1px solid #ccc;
-  padding: 15px;
-  margin: 10px;
-  border-radius: 10px;
+  background:white;
+  border-radius:10px;
+  padding:15px;
+  margin:10px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
 }
+
+.big { font-size:28px; font-weight:bold; }
+.good { color:green; }
+.bad { color:red; }
 
 button {
   margin:5px;
   padding:10px;
   font-size:14px;
+  border-radius:6px;
+  border:1px solid #ccc;
+}
+
+input, textarea {
+  width:90%;
+  padding:6px;
+  margin:5px;
 }
 </style>
 
@@ -24,24 +48,33 @@ button {
 
 <body>
 
-<h2>Fall Checker</h2>
+<div class="header">
+<h2>Fall Checker PRO</h2>
+</div>
 
 <div class="card">
-  <h3 id="statusPill">NOT RUNNING</h3>
-  <h1 id="slopePercent">0%</h1>
-  <h3 id="ratioText">1:0</h3>
-  <p id="riseFall">0 mm</p>
+  <div id="statusPill">NOT RUNNING</div>
+  <div class="big" id="slopePercent">0%</div>
+  <div id="ratioText">1:0</div>
+  <div id="riseFall">0 mm</div>
 </div>
 
 <div class="card">
 <label>Distance (mm)</label><br>
-<input id="runInput" value="1500"><br><br>
+<input id="runInput" value="1500"><br>
 
 <label>Flattest (1:N)</label><br>
 <input id="flatInput" value="80"><br>
 
 <label>Steepest (1:N)</label><br>
 <input id="steepInput" value="50">
+</div>
+
+<div class="card">
+<h4>Job Details</h4>
+<input id="jobAddress" placeholder="Address"><br>
+<input id="jobRef" placeholder="Job Reference"><br>
+<textarea id="jobNotes" placeholder="Notes"></textarea>
 </div>
 
 <div id="panel" class="card"></div>
@@ -56,8 +89,8 @@ let offset = 0;
 let inspectionMode = false;
 let stage = 0;
 let startAngle = 0;
-let finalResult = null;
 
+let finalResult = null;
 let photoData = null;
 
 // ===== UI =====
@@ -70,10 +103,10 @@ const panel = document.getElementById("panel");
 
 // ===== BUTTONS =====
 function addBtn(txt, fn){
-  let b = document.createElement("button");
-  b.innerText = txt;
-  b.onclick = fn;
-  panel.appendChild(b);
+ let b = document.createElement("button");
+ b.innerText = txt;
+ b.onclick = fn;
+ panel.appendChild(b);
 }
 
 addBtn("Enable Motion", enable);
@@ -81,7 +114,6 @@ addBtn("Calibrate", calibrate);
 addBtn("START INSPECTION", startInspection);
 addBtn("Save PDF", savePDF);
 
-// presets
 addBtn("Shower", ()=>setPreset(80,50));
 addBtn("Bathroom", ()=>setPreset(100,60));
 addBtn("Laundry", ()=>setPreset(100,60));
@@ -90,14 +122,11 @@ addBtn("Laundry", ()=>setPreset(100,60));
 let file = document.createElement("input");
 file.type = "file";
 file.accept = "image/*";
-file.style.display="block";
-
 file.onchange = e=>{
-  let reader = new FileReader();
-  reader.onload = ev => photoData = ev.target.result;
-  reader.readAsDataURL(e.target.files[0]);
+ let reader = new FileReader();
+ reader.onload = ev => photoData = ev.target.result;
+ reader.readAsDataURL(e.target.files[0]);
 };
-
 panel.appendChild(file);
 
 // ===== HELPERS =====
@@ -143,7 +172,7 @@ async function enable(){
   }
  });
 
- alert("Motion Enabled ✅");
+ alert("Motion enabled ✅");
 }
 
 // ===== CALIBRATE =====
@@ -156,7 +185,7 @@ function calibrate(){
 function startInspection(){
  inspectionMode=true;
  stage=0;
- finalResult = null;
+ finalResult=null;
 
  alert("Hold at start");
 }
@@ -164,10 +193,10 @@ function startInspection(){
 // ===== UPDATE =====
 function update(angle){
 
- // DO NOT overwrite final locked result
  if(finalResult) return;
 
  let a = smooth(angle-offset);
+
  let p = percent(a);
  let r = p>0 ? 100/p : 0;
 
@@ -185,51 +214,44 @@ function update(angle){
  ratioEl.innerText = "1:"+r.toFixed(0);
  fallEl.innerText = fall.toFixed(1)+" mm";
 
- let compliant = (fall>=min && fall<=max);
+ let compliant = fall>=min && fall<=max;
 
  statusEl.innerText = compliant ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
- statusEl.style.color = compliant ? "green" : "red";
+ statusEl.className = compliant ? "good" : "bad";
 
  // ===== INSPECTION =====
  if(inspectionMode){
 
   if(stage===0 && isStable()){
-    startAngle=a;
-    stage=1;
-    alert("Start captured ✅ move to waste");
-    return;
+   startAngle=a;
+   stage=1;
+   alert("Start captured ✅ move to waste");
+   return;
   }
 
   if(stage===1 && movedEnough()){
-    stage=2;
-    return;
+   stage=2;
+   return;
   }
 
   if(stage===2 && isStable()){
 
    let diff = a-startAngle;
+
    let p2 = percent(diff);
    let r2 = 100/p2;
    let fall2 = run * p2/100;
 
+   let compliant2 = fall2>=min && fall2<=max;
+
    percentEl.innerText = p2.toFixed(2)+"%";
    ratioEl.innerText = "1:"+r2.toFixed(0);
-   fallEl.innerText = fall2.toFixed(1)+" mm\nRequired: "+min.toFixed(1)+"–"+max.toFixed(1)+" mm";
-
-   let compliant2 = (fall2>=min && fall2<=max);
+   fallEl.innerText = fall2.toFixed(1)+" mm (Req: "+min.toFixed(1)+"-"+max.toFixed(1)+")";
 
    statusEl.innerText = compliant2 ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
-   statusEl.style.color = compliant2 ? "green" : "red";
+   statusEl.className = compliant2 ? "good" : "bad";
 
-   // LOCK FINAL RESULT (IMPORTANT)
-   finalResult = {
-     percent:p2,
-     ratio:r2,
-     fall:fall2,
-     min:min,
-     max:max,
-     compliant:compliant2
-   };
+   finalResult = {p2,r2,fall2,min,max,compliant2};
 
    inspectionMode=false;
 
@@ -243,20 +265,27 @@ function update(angle){
 function savePDF(){
 
  if(!finalResult){
-   alert("Run inspection first");
-   return;
+  alert("Run inspection first");
+  return;
  }
 
  let html = `
  <h2>Fall Inspection Report</h2>
- <p>Date: ${new Date().toLocaleString()}</p>
- <p>Slope: ${finalResult.percent.toFixed(2)}%</p>
- <p>Ratio: 1:${finalResult.ratio.toFixed(0)}</p>
- <p>Distance: ${runInput.value} mm</p>
- <p>Measured Fall: ${finalResult.fall.toFixed(1)} mm</p>
- <p>Required: ${finalResult.min.toFixed(1)} – ${finalResult.max.toFixed(1)} mm</p>
- <p>Status: ${finalResult.compliant ? "COMPLIANT" : "NON-COMPLIANT"}</p>
- ${photoData ? `<img src="${photoData}" style="width:100%">` : "<p>No photo</p>"}
+ <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+ <p><strong>Address:</strong> ${document.getElementById("jobAddress").value}</p>
+ <p><strong>Job Ref:</strong> ${document.getElementById("jobRef").value}</p>
+ <p><strong>Notes:</strong> ${document.getElementById("jobNotes").value}</p>
+
+ <hr>
+
+ <p><strong>Slope:</strong> ${finalResult.p2.toFixed(2)}%</p>
+ <p><strong>Ratio:</strong> 1:${finalResult.r2.toFixed(0)}</p>
+ <p><strong>Distance:</strong> ${runInput.value} mm</p>
+ <p><strong>Measured Fall:</strong> ${finalResult.fall2.toFixed(1)} mm</p>
+ <p><strong>Required:</strong> ${finalResult.min.toFixed(1)} - ${finalResult.max.toFixed(1)} mm</p>
+ <p><strong>Status:</strong> ${finalResult.compliant2 ? "COMPLIANT" : "NON-COMPLIANT"}</p>
+
+ ${photoData ? `<img src="${photoData}" style="width:100%">` : ""}
  `;
 
  let w = window.open("");
