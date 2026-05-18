@@ -2,7 +2,6 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fall Checker</title>
 </head>
 
 <body>
@@ -14,19 +13,7 @@
 <p id="ratioText">1:0</p>
 <p id="riseFall">0 mm</p>
 
-<label>Distance (mm)</label>
-<br>
 <input id="runInput" value="1500">
-
-<br><br>
-
-<label>Flattest (1:N)</label><br>
-<input id="flatInput" value="80">
-
-<br>
-
-<label>Steepest (1:N)</label><br>
-<input id="steepInput" value="50">
 
 <script>
 (() => {
@@ -34,158 +21,37 @@
 let readings = [];
 let offset = 0;
 
-let inspectionMode = false;
-let stage = 0;
-let startAngle = 0;
-
-const percentEl = document.getElementById("slopePercent");
-const ratioEl = document.getElementById("ratioText");
-const fallEl = document.getElementById("riseFall");
-const statusEl = document.getElementById("statusPill");
-const runInput = document.getElementById("runInput");
-
-// ===== CONTROLS =====
-let panel = document.createElement("div");
-document.body.appendChild(panel);
-
-function addBtn(txt, fn){
-  let b = document.createElement("button");
-  b.innerText = txt;
-  b.style.margin = "5px";
-  b.onclick = fn;
-  panel.appendChild(b);
-}
-
-addBtn("Enable Motion", enableMotion);
-addBtn("Calibrate", calibrate);
-addBtn("START INSPECTION", startInspection);
-
-// presets
-addBtn("Shower", ()=>setPreset(80,50));
-addBtn("Bathroom", ()=>setPreset(100,60));
-addBtn("Laundry", ()=>setPreset(100,60));
-
-// ===== FUNCTIONS =====
-function setPreset(f,s){
-  document.getElementById("flatInput").value = f;
-  document.getElementById("steepInput").value = s;
-}
-
+// simple smoothing
 function smooth(v){
   readings.push(v);
-  if(readings.length > 20) readings.shift();
+  if(readings.length > 10) readings.shift();
   return readings.reduce((a,b)=>a+b,0)/readings.length;
 }
 
-function getPercent(a){
-  return Math.abs(Math.tan(a*Math.PI/180))*100;
+function percent(a){
+ return Math.abs(Math.tan(a*Math.PI/180))*100;
 }
 
-function isStable(){
-  if(readings.length < 10) return false;
+// UI
+const percentEl = document.getElementById("slopePercent");
 
-  let s = readings.slice(-10);
-  let avg = s.reduce((a,b)=>a+b)/s.length;
-  let dev = s.reduce((a,b)=>a+Math.abs(b-avg),0)/s.length;
-
-  return dev < 0.2;
-}
-
-function movedEnough(){
-  if(readings.length < 10) return false;
-
-  let first = readings[readings.length-10];
-  let last = readings[readings.length-1];
-
-  return Math.abs(last - first) > 2;
-}
-
-// ===== SENSOR =====
-async function enableMotion(){
-
+async function enable(){
   if(typeof DeviceOrientationEvent.requestPermission === "function"){
     await DeviceOrientationEvent.requestPermission();
   }
 
   window.addEventListener("deviceorientation", e=>{
     if(e.beta !== null){
-      update(e.beta);
+      let a = smooth(e.beta - offset);
+      let p = percent(a);
+      percentEl.innerText = p.toFixed(2)+"%";
     }
   });
-
-  alert("Motion enabled ✅");
 }
 
-// ===== CALIBRATE =====
-function calibrate(){
-  offset = readings[readings.length-1] || 0;
-  alert("Calibrated ✅");
-}
+document.body.insertAdjacentHTML("beforeend", "<br><button id='go'>Enable Motion</button>");
 
-// ===== START =====
-function startInspection(){
-  inspectionMode = true;
-  stage = 0;
-  alert("Hold at start");
-}
-
-// ===== UPDATE =====
-function update(angle){
-
-  let a = smooth(angle - offset);
-
-  let p = getPercent(a);
-  let r = p>0 ? 100/p : 0;
-
-  let run = parseFloat(runInput.value) || 1000;
-  let fall = run * p/100;
-
-  percentEl.innerText = p.toFixed(2)+"%";
-  ratioEl.innerText = "1:"+r.toFixed(0);
-  fallEl.innerText = fall.toFixed(1)+" mm";
-
-  let flat = document.getElementById("flatInput").value;
-  let steep = document.getElementById("steepInput").value;
-
-  let min = run/flat;
-  let max = run/steep;
-
-  statusEl.innerText = (fall>=min && fall<=max) ? "COMPLIANT" : "NON-COMPLIANT";
-
-  // ===== INSPECTION =====
-  if(inspectionMode){
-
-    if(stage === 0 && isStable()){
-      startAngle = a;
-      stage = 1;
-      alert("Start captured ✅ move to waste");
-      return;
-    }
-
-    if(stage === 1 && movedEnough()){
-      stage = 2;
-      return;
-    }
-
-    if(stage === 2 && isStable()){
-
-      let diff = a - startAngle;
-
-      let p2 = getPercent(diff);
-      let r2 = 100/p2;
-      let fall2 = run * p2/100;
-
-      percentEl.innerText = p2.toFixed(2)+"%";
-      ratioEl.innerText = "1:"+r2.toFixed(0);
-      fallEl.innerText = fall2.toFixed(1)+" mm";
-
-      statusEl.innerText = (fall2>=min && fall2<=max) ? "COMPLIANT" : "NON-COMPLIANT";
-
-      inspectionMode = false;
-      alert("Inspection complete ✅");
-    }
-  }
-}
+document.getElementById("go").onclick = enable;
 
 })();
 </script>
