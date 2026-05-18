@@ -235,81 +235,116 @@ addButton("Set Finish", ()=>{
 <script>
 (() => {
 
-// -------- STATE --------
+//// ================= STATE =================
 let readings = [];
+const MAX = 20;
+
 let offset = 0;
 
 let inspectionMode = false;
 let stage = 0;
 let startAngle = 0;
 
-// -------- UI --------
+let photoData = null;
+
+//// ================= UI =================
 const percentEl = document.getElementById("slopePercent");
 const ratioEl = document.getElementById("ratioText");
 const fallEl = document.getElementById("riseFall");
 const statusEl = document.getElementById("statusPill");
 const runInput = document.getElementById("runInput");
 
-// -------- PANEL --------
+//// ================= CONTROL PANEL =================
 let panel = document.createElement("div");
 panel.style.margin = "10px";
 panel.style.padding = "10px";
 panel.style.border = "1px solid #ccc";
+panel.style.background = "#eee";
 document.body.appendChild(panel);
 
-function addBtn(txt, fn){
+function addBtn(label, fn){
   let b = document.createElement("button");
-  b.innerText = txt;
+  b.innerText = label;
   b.style.margin = "5px";
   b.onclick = fn;
   panel.appendChild(b);
 }
 
-// -------- BUTTONS --------
+//// ================= BUTTONS =================
 addBtn("Enable Motion", enableMotion);
 addBtn("Calibrate", calibrate);
 addBtn("START INSPECTION", startInspection);
+addBtn("Save PDF", savePDF);
 
-// presets
+//// ================= NCC PRESETS =================
 addBtn("Shower", ()=>setPreset(80,50));
 addBtn("Bathroom", ()=>setPreset(100,60));
 addBtn("Laundry", ()=>setPreset(100,60));
 
-// -------- HELPERS --------
-function setPreset(f,s){
-  document.getElementById("flatInput").value = f;
-  document.getElementById("steepInput").value = s;
+function setPreset(flat, steep){
+  document.getElementById("flatInput").value = flat;
+  document.getElementById("steepInput").value = steep;
 }
 
+//// ================= PHOTO INPUT =================
+let imgInput = document.createElement("input");
+imgInput.type = "file";
+imgInput.accept = "image/*";
+imgInput.style.display = "block";
+
+imgInput.onchange = e=>{
+  let reader = new FileReader();
+  reader.onload = ev => photoData = ev.target.result;
+  reader.readAsDataURL(e.target.files[0]);
+};
+
+panel.appendChild(imgInput);
+
+//// ================= HELPERS =================
+
+// smoothing (stability)
 function smooth(v){
   readings.push(v);
-  if(readings.length > 20) readings.shift();
+  if(readings.length > MAX) readings.shift();
   return readings.reduce((a,b)=>a+b,0)/readings.length;
 }
 
+// slope
 function getPercent(a){
-  return Math.abs(Math.tan(a*Math.PI/180))*100;
+  return Math.abs(Math.tan(a * Math.PI/180)) * 100;
 }
 
+// stable detection
 function isStable(){
   if(readings.length < 10) return false;
+
   let s = readings.slice(-10);
   let avg = s.reduce((a,b)=>a+b)/s.length;
-  let dev = s.reduce((a,b)=>a+Math.abs(b-avg),0)/s.length;
+  let dev = s.reduce((a,b)=>a + Math.abs(b-avg),0)/s.length;
+
   return dev < 0.2;
 }
 
+// movement detection
 function movedEnough(){
   if(readings.length < 10) return false;
+
   let first = readings[readings.length-10];
   let last = readings[readings.length-1];
+
   return Math.abs(last - first) > 2;
 }
 
-// -------- MOTION --------
+//// ================= SENSOR =================
 async function enableMotion(){
+
   if(typeof DeviceOrientationEvent.requestPermission === "function"){
-    await DeviceOrientationEvent.requestPermission();
+    try {
+      await DeviceOrientationEvent.requestPermission();
+    } catch(e){
+      alert("Motion permission failed");
+      return;
+    }
   }
 
   window.addEventListener("deviceorientation", e=>{
@@ -318,28 +353,32 @@ async function enableMotion(){
     }
   });
 
-  alert("Motion enabled ✅");
+  alert("Motion Enabled ✅");
 }
 
-// -------- CALIBRATE --------
+//// ================= CALIBRATE =================
 function calibrate(){
   offset = readings[readings.length-1] || 0;
   alert("Calibrated ✅");
 }
 
-// -------- START --------
+//// ================= INSPECTION =================
 function startInspection(){
   inspectionMode = true;
   stage = 0;
-  alert("Hold at start");
+  startAngle = 0;
+
+  alert("Hold phone at START and keep still");
 }
 
-// -------- UPDATE --------
+//// ================= UPDATE =================
 function update(angle){
 
-  let a = smooth(angle - offset);
+  let corrected = angle - offset;
+  let a = smooth(corrected);
+
   let p = getPercent(a);
-  let r = p>0 ? 100/p : 0;
+  let r = p > 0 ? 100/p : 0;
 
   let run = parseFloat(runInput.value) || 1000;
   let fall = run * p/100;
@@ -348,18 +387,24 @@ function update(angle){
   ratioEl.innerText = "1:"+r.toFixed(0);
   fallEl.innerText = fall.toFixed(1)+" mm";
 
-  let flat = document.getElementById("flatInput").value;
-  let steep = document.getElementById("steepInput").value;
+  let flat = parseFloat(document.getElementById("flatInput").value);
+  let steep = parseFloat(document.getElementById("steepInput").value);
 
-  let min = run/flat;
-  let max = run/steep;
+  let min = run / flat;
+  let max = run / steep;
 
-  statusEl.innerText = (fall>=min && fall<=max) ? "COMPLIANT" : "NON-COMPLIANT";
-  statusEl.style.color = (fall>=min && fall<=max) ? "green" : "red";
+  if(fall >= min && fall <= max){
+    statusEl.innerText = "COMPLIANT";
+    statusEl.style.color = "green";
+  } else {
+    statusEl.innerText = "NON-COMPLIANT";
+    statusEl.style.color = "red";
+  }
 
-  // ------ INSPECTION LOGIC ------
+  //// ===== ONE TAP INSPECTION =====
   if(inspectionMode){
 
+    // capture start
     if(stage === 0 && isStable()){
       startAngle = a;
       stage = 1;
@@ -367,11 +412,13 @@ function update(angle){
       return;
     }
 
+    // wait for movement
     if(stage === 1 && movedEnough()){
       stage = 2;
       return;
     }
 
+    // capture end
     if(stage === 2 && isStable()){
 
       let diff = a - startAngle;
@@ -384,18 +431,53 @@ function update(angle){
       ratioEl.innerText = "1:"+r2.toFixed(0);
       fallEl.innerText = fall2.toFixed(1)+" mm";
 
-      statusEl.innerText = (fall2>=min && fall2<=max) ? "COMPLIANT" : "NON-COMPLIANT";
-      statusEl.style.color = (fall2>=min && fall2<=max) ? "green" : "red";
+      if(fall2 >= min && fall2 <= max){
+        statusEl.innerText = "COMPLIANT";
+        statusEl.style.color = "green";
+      } else {
+        statusEl.innerText = "NON-COMPLIANT";
+        statusEl.style.color = "red";
+      }
 
       inspectionMode = false;
+      stage = 0;
+
       alert("Inspection complete ✅");
     }
   }
 }
 
+//// ================= PDF =================
+function savePDF(){
+
+  let run = runInput.value;
+  let percent = percentEl.innerText;
+  let ratio = ratioEl.innerText;
+  let fall = fallEl.innerText;
+
+  let flat = document.getElementById("flatInput").value;
+  let steep = document.getElementById("steepInput").value;
+
+  let min = run/flat;
+  let max = run/steep;
+
+  let html = `
+    <h2>Fall Inspection Report</h2>
+    <p>Date: ${new Date().toLocaleString()}</p>
+    <p>Slope: ${percent}</p>
+    <p>Ratio: ${ratio}</p>
+    <p>Distance: ${run} mm</p>
+    <p>Measured Fall: ${fall}</p>
+    <p>Required: ${min.toFixed(1)} - ${max.toFixed(1)} mm</p>
+    ${photoData ? `<img src="${photoData}" style="width:100%">` : "<p>No photo</p>"}
+  `;
+
+  let w = window.open("");
+  w.document.write(html);
+  w.print();
+}
+
 })();
 </script>
-``
 </body>
 </html>
-
