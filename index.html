@@ -204,265 +204,179 @@
       </div>
     </div>
   </div>
-
 <script>
 (() => {
-  // ---------- State & Persistence ----------
-  const LS_KEY = 'fallCheckerWeb.v1';
-  const defaults = {
-    runMM: 1000,
-    axis: 'beta', // beta=pitch, gamma=roll
-    preset: 'shower',
-    presets: {
-      // Default range often described as continuous falls 1:80 (min) to 1:50 (max) to waste.
-      // You can change these per preset.
-      shower:  { flattest: 80, steepest: 50 },
-      bathroom:{ flattest: 80, steepest: 50 },
-      laundry: { flattest: 80, steepest: 50 },
-    }
+
+let readings = [];
+const MAX_READINGS = 30;
+
+let offset = 0;
+let isHeld = false;
+let photoData = null;
+
+// UI
+const percentEl = document.getElementById("slopePercent");
+const ratioEl = document.getElementById("ratioText");
+const riseEl = document.getElementById("riseFall");
+const statusEl = document.getElementById("statusPill");
+const runInput = document.getElementById("runInput");
+
+// ===== ADD BUTTON HELPER =====
+function addButton(text, fn){
+  const b = document.createElement("button");
+  b.innerText = text;
+  b.style.margin="5px";
+  b.onclick = fn;
+  document.body.appendChild(b);
+}
+
+// ===== PHOTO ATTACH =====
+const photoInput = document.createElement("input");
+photoInput.type = "file";
+photoInput.accept = "image/*";
+photoInput.style.display="block";
+
+photoInput.onchange = (e)=>{
+  const file = e.target.files[0];
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    photoData = ev.target.result;
   };
+  reader.readAsDataURL(file);
+};
 
-  function loadState(){
-    try{
-      const raw = localStorage.getItem(LS_KEY);
-      if(!raw) return structuredClone(defaults);
-      const parsed = JSON.parse(raw);
-      return {
-        ...structuredClone(defaults),
-        ...parsed,
-        presets: { ...structuredClone(defaults.presets), ...(parsed.presets || {}) }
-      };
-    }catch{ return structuredClone(defaults); }
+document.body.appendChild(photoInput);
+
+// ===== NCC PRESETS =====
+addButton("Preset: Shower (1:80–1:50)", ()=> setPreset(80,50));
+addButton("Preset: Bathroom (1:100–1:60)", ()=> setPreset(100,60));
+addButton("Preset: Laundry (1:100–1:60)", ()=> setPreset(100,60));
+
+function setPreset(flat, steep){
+  document.getElementById("flatInput").value = flat;
+  document.getElementById("steepInput").value = steep;
+}
+
+// ===== PDF BUTTON =====
+addButton("Save PDF", savePDF);
+
+// ===== MATH =====
+function getPercent(angle){
+  return Math.abs(Math.tan(angle * Math.PI/180))*100;
+}
+
+function getRatio(p){
+  if(p<=0) return null;
+  return 100/p;
+}
+
+// ===== SMOOTHING =====
+function smooth(v){
+  readings.push(v);
+  if(readings.length > MAX_READINGS) readings.shift();
+  return readings.reduce((a,b)=>a+b,0)/readings.length;
+}
+
+// ===== UPDATE DISPLAY =====
+function update(angle){
+
+  if(isHeld) return;
+
+  let corrected = angle - offset;
+  let smoothAngle = smooth(corrected);
+
+  let percent = getPercent(smoothAngle);
+  let ratio = getRatio(percent);
+
+  let run = parseFloat(runInput.value) || 1000;
+  let fall = run * percent/100;
+
+  percentEl.innerText = percent.toFixed(2) + "%";
+  ratioEl.innerText = ratio ? "1:" + ratio.toFixed(0) : "—";
+  riseEl.innerText = fall.toFixed(1) + " mm";
+
+  let flat = parseFloat(document.getElementById("flatInput").value);
+  let steep = parseFloat(document.getElementById("steepInput").value);
+
+  let minFall = run / flat;
+  let maxFall = run / steep;
+
+  let compliant = fall >= minFall && fall <= maxFall;
+
+  if(compliant){
+    statusEl.innerText = "COMPLIANT";
+    statusEl.style.color = "green";
+  } else {
+    statusEl.innerText = "NON-COMPLIANT";
+    statusEl.style.color = "red";
   }
+}
 
-  function saveState(){
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
+// ===== SENSOR =====
+function handle(e){
+  let angle = e.beta;
+  if(typeof angle === "number"){
+    update(angle);
   }
+}
 
-  let state = loadState();
-
-  // ---------- UI Elements ----------
-  const statusCard = document.getElementById('statusCard');
-  const statusPill = document.getElementById('statusPill');
-  const slopePercentEl = document.getElementById('slopePercent');
-  const ratioTextEl = document.getElementById('ratioText');
-  const riseFallEl = document.getElementById('riseFall');
-  const allowedEl = document.getElementById('allowed');
-  const angleEl = document.getElementById('angle');
-  const presetAxisEl = document.getElementById('presetAxis');
-
-  const enableBtn = document.getElementById('enableBtn');
-  const holdBtn = document.getElementById('holdBtn');
-  const calBtn = document.getElementById('calBtn');
-  const resetBtn = document.getElementById('resetBtn');
-
-  const axisSel = document.getElementById('axisSel');
-  const runInput = document.getElementById('runInput');
-  const flatInput = document.getElementById('flatInput');
-  const steepInput = document.getElementById('steepInput');
-
-  // Tabs
-  const tabs = Array.from(document.querySelectorAll('.tab'));
-
-  // ---------- Math Helpers ----------
-  const clampRange = (flattest, steepest) => {
-    // Ensure steepest <= flattest
-    if(steepest > flattest) return { flattest: steepest, steepest: flattest };
-    return { flattest, steepest };
-  };
-
-  const percentFromAngleDeg = (deg) => {
-    const rad = deg * Math.PI/180;
-    const p = Math.abs(Math.tan(rad))*100;
-    return Number.isFinite(p) ? p : 0;
-  };
-
-  const ratioFromPercent = (p) => (p > 0 ? 100/p : null);
-
-  const riseFallMM = (p, runMM) => runMM * (p/100);
-
-  // ---------- Motion Handling ----------
-  let isRunning = false;
-  let isHeld = false;
-  let offsetDeg = 0;
-  let emaAngle = 0;
-  const EMA_ALPHA = 0.18; // smoothing
-
-  function setStatus(compliant, running){
-    statusCard.classList.remove('good','bad');
-    statusPill.classList.remove('good','bad');
-
-    if(!running){
-      statusPill.textContent = 'NOT RUNNING';
-      return;
-    }
-
-    if(compliant){
-      statusCard.classList.add('good');
-      statusPill.classList.add('good');
-      statusPill.textContent = 'COMPLIANT';
-    } else {
-      statusCard.classList.add('bad');
-      statusPill.classList.add('bad');
-      statusPill.textContent = 'NON-COMPLIANT';
-    }
+async function enableMotion(){
+  if(typeof DeviceOrientationEvent.requestPermission === "function"){
+    await DeviceOrientationEvent.requestPermission();
   }
+  window.addEventListener("deviceorientation", handle);
+}
 
-  function currentRange(){
-    const r = state.presets[state.preset];
-    return clampRange(Number(r.flattest)||80, Number(r.steepest)||50);
-  }
+document.getElementById("enableBtn").onclick = enableMotion;
 
-  function render(){
-    // Inputs
-    axisSel.value = state.axis;
-    runInput.value = state.runMM;
+// ===== CONTROLS =====
+document.getElementById("calBtn").onclick = ()=>{
+  offset = readings[readings.length-1] || 0;
+};
 
-    const r = currentRange();
-    flatInput.value = r.flattest;
-    steepInput.value = r.steepest;
+document.getElementById("holdBtn").onclick = ()=>{
+  isHeld = !isHeld;
+};
 
-    // Tabs
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.preset === state.preset));
+// ===== PDF =====
+function savePDF(){
 
-    // Allowed
-    allowedEl.textContent = `1:${r.steepest.toFixed(0)} to 1:${r.flattest.toFixed(0)}`;
+  let percent = percentEl.innerText;
+  let ratio = ratioEl.innerText;
+  let fall = riseEl.innerText;
+  let run = runInput.value;
 
-    // Footer label
-    const axisName = state.axis === 'beta' ? 'Pitch' : 'Roll';
-    presetAxisEl.textContent = `${state.preset} / ${axisName}`;
+  let flat = document.getElementById("flatInput").value;
+  let steep = document.getElementById("steepInput").value;
 
-    holdBtn.textContent = isHeld ? 'Resume' : 'Hold';
-  }
+  let minFall = run / flat;
+  let maxFall = run / steep;
 
-  function updateReadout(angleDeg){
-    const corrected = angleDeg - offsetDeg;
-    // smoothing
-    emaAngle = (EMA_ALPHA * corrected) + ((1-EMA_ALPHA) * emaAngle);
+  let date = new Date().toLocaleString();
 
-    const p = percentFromAngleDeg(emaAngle);
-    const ratio = ratioFromPercent(p);
-    const run = Number(state.runMM) || 1000;
-    const mm = riseFallMM(p, run);
+  let imgHTML = photoData 
+    ? `<img src="${photoData}" style="max-width:100%; margin-top:10px;">` 
+    : "<p>No photo</p>";
 
-    angleEl.textContent = `${emaAngle.toFixed(2)}°`;
-    slopePercentEl.textContent = `${p.toFixed(2)}%`;
+  let html = `
+  <html>
+  <body>
+    <h2>Fall Inspection Record</h2>
+    <p>Date: ${date}</p>
+    <p>Slope: ${percent}</p>
+    <p>Ratio: ${ratio}</p>
+    <p>Distance: ${run} mm</p>
+    <p>Measured Fall: ${fall}</p>
+    <p>Required Fall: ${minFall.toFixed(1)} → ${maxFall.toFixed(1)} mm</p>
+    ${imgHTML}
+  </body>
+  </html>`;
 
-    if(ratio){
-      ratioTextEl.textContent = `1:${ratio.toFixed(0)}`;
-    } else {
-      ratioTextEl.textContent = '1:—';
-    }
+  let w = window.open("");
+  w.document.write(html);
+  w.print();
+}
 
-    riseFallEl.textContent = `${mm.toFixed(1)} mm`;
-
-    const range = currentRange();
-    const compliant = ratio ? (ratio >= range.steepest && ratio <= range.flattest) : false;
-    setStatus(compliant, isRunning);
-  }
-
-  function onOrientation(ev){
-    if(isHeld) return;
-    // beta: front-back tilt (-180..180)
-    // gamma: left-right tilt (-90..90)
-    const raw = state.axis === 'beta' ? ev.beta : ev.gamma;
-    if(typeof raw !== 'number') return;
-    updateReadout(raw);
-  }
-
-  async function requestPermissionAndStart(){
-    // iOS 13+ requires requestPermission() from a user gesture, and is typically HTTPS-only.
-    try{
-      // Prefer DeviceOrientationEvent
-      if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
-        const res = await DeviceOrientationEvent.requestPermission();
-        if(res !== 'granted') throw new Error('Permission denied');
-      }
-      // Some devices may also need devicemotion permission; request if available.
-      if(typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
-        const res2 = await DeviceMotionEvent.requestPermission();
-        // If denied, orientation may still work; don't hard-fail.
-        // Just continue.
-      }
-
-      window.addEventListener('deviceorientation', onOrientation, true);
-      isRunning = true;
-      enableBtn.textContent = 'Motion Enabled';
-      enableBtn.disabled = true;
-      setStatus(false, true);
-
-    }catch(err){
-      console.error(err);
-      enableBtn.textContent = 'Enable Motion (failed)';
-      setStatus(false, false);
-      alert('Could not enable motion.\n\nTips:\n• Open in Safari (not inside an in-app browser).\n• Use an HTTPS link.\n• Try again and tap Allow.');
-    }
-  }
-
-  // ---------- Wire up UI ----------
-
-  enableBtn.addEventListener('click', requestPermissionAndStart);
-
-  holdBtn.addEventListener('click', () => {
-    isHeld = !isHeld;
-    render();
-  });
-
-  calBtn.addEventListener('click', () => {
-    // calibrate zero at current filtered angle
-    offsetDeg = emaAngle;
-  });
-
-  resetBtn.addEventListener('click', () => {
-    offsetDeg = 0;
-    emaAngle = 0;
-    isHeld = false;
-    isRunning = false;
-    window.removeEventListener('deviceorientation', onOrientation, true);
-    enableBtn.disabled = false;
-    enableBtn.textContent = 'Enable Motion';
-    setStatus(false, false);
-    render();
-    updateReadout(0);
-  });
-
-  axisSel.addEventListener('change', () => {
-    state.axis = axisSel.value;
-    saveState();
-    render();
-  });
-
-  runInput.addEventListener('input', () => {
-    const v = Number(runInput.value);
-    state.runMM = Number.isFinite(v) && v > 0 ? v : 1000;
-    saveState();
-  });
-
-  function updatePresetRangeFromInputs(){
-    const flat = Number(flatInput.value) || 80;
-    const steep = Number(steepInput.value) || 50;
-    state.presets[state.preset] = clampRange(flat, steep);
-    saveState();
-    render();
-  }
-
-  flatInput.addEventListener('input', updatePresetRangeFromInputs);
-  steepInput.addEventListener('input', updatePresetRangeFromInputs);
-
-  tabs.forEach(tab => tab.addEventListener('click', () => {
-    state.preset = tab.dataset.preset;
-    saveState();
-    render();
-  }));
-
-  // ---------- PWA service worker (optional) ----------
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  }
-
-  // First render
-  render();
-  updateReadout(0);
 })();
 </script>
 </body>
