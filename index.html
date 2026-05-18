@@ -66,7 +66,6 @@ const ratioEl = document.getElementById("ratioText");
 const fallEl = document.getElementById("riseFall");
 const statusEl = document.getElementById("statusPill");
 const runInput = document.getElementById("runInput");
-
 const panel = document.getElementById("panel");
 
 // ===== BUTTONS =====
@@ -85,7 +84,7 @@ addBtn("Shower", ()=>setPreset(80,50));
 addBtn("Bathroom", ()=>setPreset(100,60));
 addBtn("Laundry", ()=>setPreset(100,60));
 
-// ===== FUNCTIONS =====
+// ===== HELPERS =====
 function setPreset(f,s){
  document.getElementById("flatInput").value=f;
  document.getElementById("steepInput").value=s;
@@ -94,7 +93,7 @@ function setPreset(f,s){
 function smooth(v){
  readings.push(v);
  if(readings.length>20) readings.shift();
- return readings.reduce((a,b)=>a+b)/readings.length;
+ return readings.reduce((a,b)=>a+b,0)/readings.length;
 }
 
 function percent(a){
@@ -106,14 +105,14 @@ function isStable(){
  let s=readings.slice(-10);
  let avg=s.reduce((a,b)=>a+b)/s.length;
  let dev=s.reduce((a,b)=>a+Math.abs(b-avg),0)/s.length;
- return dev < 0.25; // more forgiving
+ return dev < 0.25;
 }
 
 function movedEnough(){
  if(readings.length<10) return false;
  let first=readings[readings.length-10];
  let last=readings[readings.length-1];
- return Math.abs(last-first)>1; // LOWER threshold (better)
+ return Math.abs(last-first)>1;
 }
 
 // ===== MOTION =====
@@ -148,28 +147,30 @@ function startInspection(){
 function update(angle){
 
  let a = smooth(angle-offset);
+
  let p = percent(a);
  let r = p>0 ? 100/p : 0;
 
  let run = parseFloat(runInput.value)||1000;
+
+ let flat=parseFloat(document.getElementById("flatInput").value);
+ let steep=parseFloat(document.getElementById("steepInput").value);
+
+ let min=run/flat;
+ let max=run/steep;
+
  let fall = run * p/100;
 
  percentEl.innerText = p.toFixed(2)+"%";
  ratioEl.innerText = "1:"+r.toFixed(0);
- fallEl.innerText = fall.toFixed(1)+" mm";
-
- let flat=document.getElementById("flatInput").value;
- let steep=document.getElementById("steepInput").value;
-
- let min=run/flat;
- let max=run/steep;
+ fallEl.innerText = fall.toFixed(1)+" mm\nRequired: "+min.toFixed(1)+"–"+max.toFixed(1)+" mm";
 
  let compliant = (fall>=min && fall<=max);
 
  statusEl.innerText = compliant ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
  statusEl.style.color = compliant ? "green" : "red";
 
- // ===== INSPECTION =====
+ // ===== INSPECTION MODE =====
  if(inspectionMode){
 
   if(stage===0 && isStable()){
@@ -187,29 +188,10 @@ function update(angle){
   if(stage===2 && isStable()){
 
    let diff = a-startAngle;
+
    let p2 = percent(diff);
    let r2 = 100/p2;
    let fall2 = run * p2/100;
 
    percentEl.innerText = p2.toFixed(2)+"%";
    ratioEl.innerText = "1:"+r2.toFixed(0);
-   fallEl.innerText = fall2.toFixed(1)+" mm";
-
-   let compliant2 = (fall2>=min && fall2<=max);
-
-   statusEl.innerText = compliant2 ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
-   statusEl.style.color = compliant2 ? "green" : "red";
-
-   inspectionMode=false;
-
-   alert("Inspection complete ✅");
-  }
- }
-
-}
-
-})();
-</script>
-
-</body>
-</html>
