@@ -4,10 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
-body {
-  font-family: Arial;
-  text-align: center;
-}
+body { font-family: Arial; text-align: center; }
 
 .card {
   border: 1px solid #ccc;
@@ -59,6 +56,9 @@ let offset = 0;
 let inspectionMode = false;
 let stage = 0;
 let startAngle = 0;
+let finalResult = null;
+
+let photoData = null;
 
 // ===== UI =====
 const percentEl = document.getElementById("slopePercent");
@@ -79,10 +79,26 @@ function addBtn(txt, fn){
 addBtn("Enable Motion", enable);
 addBtn("Calibrate", calibrate);
 addBtn("START INSPECTION", startInspection);
+addBtn("Save PDF", savePDF);
 
+// presets
 addBtn("Shower", ()=>setPreset(80,50));
 addBtn("Bathroom", ()=>setPreset(100,60));
 addBtn("Laundry", ()=>setPreset(100,60));
+
+// ===== PHOTO =====
+let file = document.createElement("input");
+file.type = "file";
+file.accept = "image/*";
+file.style.display="block";
+
+file.onchange = e=>{
+  let reader = new FileReader();
+  reader.onload = ev => photoData = ev.target.result;
+  reader.readAsDataURL(e.target.files[0]);
+};
+
+panel.appendChild(file);
 
 // ===== HELPERS =====
 function setPreset(f,s){
@@ -140,14 +156,18 @@ function calibrate(){
 function startInspection(){
  inspectionMode=true;
  stage=0;
+ finalResult = null;
+
  alert("Hold at start");
 }
 
 // ===== UPDATE =====
 function update(angle){
 
- let a = smooth(angle-offset);
+ // DO NOT overwrite final locked result
+ if(finalResult) return;
 
+ let a = smooth(angle-offset);
  let p = percent(a);
  let r = p>0 ? 100/p : 0;
 
@@ -163,14 +183,14 @@ function update(angle){
 
  percentEl.innerText = p.toFixed(2)+"%";
  ratioEl.innerText = "1:"+r.toFixed(0);
- fallEl.innerText = fall.toFixed(1)+" mm\nRequired: "+min.toFixed(1)+"–"+max.toFixed(1)+" mm";
+ fallEl.innerText = fall.toFixed(1)+" mm";
 
  let compliant = (fall>=min && fall<=max);
 
  statusEl.innerText = compliant ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
  statusEl.style.color = compliant ? "green" : "red";
 
- // ===== INSPECTION MODE =====
+ // ===== INSPECTION =====
  if(inspectionMode){
 
   if(stage===0 && isStable()){
@@ -188,7 +208,6 @@ function update(angle){
   if(stage===2 && isStable()){
 
    let diff = a-startAngle;
-
    let p2 = percent(diff);
    let r2 = 100/p2;
    let fall2 = run * p2/100;
@@ -202,12 +221,47 @@ function update(angle){
    statusEl.innerText = compliant2 ? "✅ COMPLIANT" : "❌ NON-COMPLIANT";
    statusEl.style.color = compliant2 ? "green" : "red";
 
+   // LOCK FINAL RESULT (IMPORTANT)
+   finalResult = {
+     percent:p2,
+     ratio:r2,
+     fall:fall2,
+     min:min,
+     max:max,
+     compliant:compliant2
+   };
+
    inspectionMode=false;
 
    alert("Inspection complete ✅");
   }
  }
 
+}
+
+// ===== PDF =====
+function savePDF(){
+
+ if(!finalResult){
+   alert("Run inspection first");
+   return;
+ }
+
+ let html = `
+ <h2>Fall Inspection Report</h2>
+ <p>Date: ${new Date().toLocaleString()}</p>
+ <p>Slope: ${finalResult.percent.toFixed(2)}%</p>
+ <p>Ratio: 1:${finalResult.ratio.toFixed(0)}</p>
+ <p>Distance: ${runInput.value} mm</p>
+ <p>Measured Fall: ${finalResult.fall.toFixed(1)} mm</p>
+ <p>Required: ${finalResult.min.toFixed(1)} – ${finalResult.max.toFixed(1)} mm</p>
+ <p>Status: ${finalResult.compliant ? "COMPLIANT" : "NON-COMPLIANT"}</p>
+ ${photoData ? `<img src="${photoData}" style="width:100%">` : "<p>No photo</p>"}
+ `;
+
+ let w = window.open("");
+ w.document.write(html);
+ w.print();
 }
 
 })();
