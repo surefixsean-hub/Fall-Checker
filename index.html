@@ -1,3 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+
+  <!-- iOS "app-like" hints -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Fall Checker" />
+
+  <title>Fall Checker</title>
+  <style>
+    :root{
+      --bg:#0b1220; --card:#111a2e; --text:#e9eefc; --muted:#a8b3d6;
+      --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+      --border: rgba(255,255,255,.10);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 500px at 20% -20%, #1b2a55 0%, transparent 60%),
+                  radial-gradient(900px 400px at 90% 0%, #2a174d 0%, transparent 55%),
+                  var(--bg);
+      color:var(--text);
+    }
+    .wrap{max-width:880px; margin:0 auto; padding:16px 14px 32px}
+    h1{font-size:20px; margin:10px 0 12px; font-weight:800}
+
+    .row{display:flex; gap:12px; flex-wrap:wrap}
+    .card{
+      background: color-mix(in srgb, var(--card) 92%, black);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:14px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.22);
+    }
+    .status{flex: 1 1 420px; min-width: 320px; position:relative; overflow:hidden}
+    .status.good{outline:2px solid color-mix(in srgb, var(--good) 50%, transparent)}
+    .status.bad{outline:2px solid color-mix(in srgb, var(--bad) 50%, transparent)}
+
+    .pill{
+      display:inline-flex; gap:8px; align-items:center;
+      padding:6px 10px; border-radius:999px;
+      font-weight:800; letter-spacing:.3px; font-size:12px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.04);
+    }
+    .pill.good{color:var(--good)}
+    .pill.bad{color:var(--bad)}
+
+    .big{font-size:34px; font-weight:900; margin:6px 0 2px}
+    .grid{display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px}
+    .k{color:var(--muted); font-size:12px}
+    .v{font-size:18px; font-weight:800}
+
+    .controls{flex: 1 1 320px; min-width: 300px}
+let startAngle = null;
+let endAngle = null;
+
+addButton("Set Start", ()=>{
+  startAngle = readings[readings.length-1] || 0;
+});
+
+addButton("Set Finish", ()=>{
+
+  endAngle = readings[readings.length-1] || 0;
+
+  if(startAngle === null){
+    alert("Set start first");
+    return;
+  }
+
+  const diff = endAngle - startAngle;
+
+  let percent = Math.abs(Math.tan(diff * Math.PI/180))*100;
+  let ratio = 100/percent;
+
+  let run = parseFloat(runInput.value) || 1000;
+  let fall = run * percent/100;
+
+  percentEl.innerText = percent.toFixed(2) + "%";
+  ratioEl.innerText = "1:" + ratio.toFixed(0);
+  riseEl.innerText = fall.toFixed(1) + " mm";
+});
+
+    button{
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      font-weight:800;
+      cursor:pointer;
+      touch-action: manipulation;
+    }
+    button.primary{background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.35)}
+    button.danger{background: rgba(239,68,68,.18); border-color: rgba(239,68,68,.35)}
+    button:disabled{opacity:.55; cursor:not-allowed}
+
+    label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; font-weight:700}
+    input, select{
+      width:100%;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.05);
+      color: var(--text);
+      padding:10px 10px;
+      border-radius:12px;
+      outline:none;
+      font-weight:800;
+    }
+
+    .tabs{display:flex; gap:8px; margin-bottom:12px}
+    .tab{
+      flex:1;
+      text-align:center;
+      padding:10px 10px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.04);
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+    }
+    .tab.active{
+      background: rgba(255,255,255,.08);
+      outline:2px solid rgba(99,102,241,.35);
+    }
+
+    .hint{color:var(--muted); font-size:12px; line-height:1.35}
+    .hint strong{color:var(--text)}
+
+    .two{
+      display:grid; grid-template-columns: 1fr 1fr; gap:10px;
+    }
+
+    .footer{margin-top:14px; color:var(--muted); font-size:12px}
+    .mono{font-variant-numeric: tabular-nums}
+
+    @media (max-width:520px){
+      .grid{grid-template-columns:1fr}
+      .two{grid-template-columns:1fr}
+      .big{font-size:30px}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Fall Checker (Web)</h1>
+
+    <div class="row">
+      <div id="statusCard" class="card status">
+        <div class="pill" id="statusPill">NOT RUNNING</div>
+        <div class="big mono" id="slopePercent">0.00%</div>
+        <div class="mono" style="font-weight:800; font-size:16px" id="ratioText">1:—</div>
+
+        <div class="grid">
+          <div>
+            <div class="k">Rise/Fall over run</div>
+            <div class="v mono" id="riseFall">—</div>
+          </div>
+          <div>
+            <div class="k">Allowed range (1:N)</div>
+            <div class="v mono" id="allowed">—</div>
+          </div>
+          <div>
+            <div class="k">Angle (selected axis)</div>
+            <div class="v mono" id="angle">0.00°</div>
+          </div>
+          <div>
+            <div class="k">Preset / Axis</div>
+            <div class="v mono" id="presetAxis">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card controls">
+        <div class="tabs">
+          <div class="tab active" data-preset="shower">Shower</div>
+          <div class="tab" data-preset="bathroom">Bathroom</div>
+          <div class="tab" data-preset="laundry">Laundry</div>
+        </div>
+
+        <div class="row" style="gap:10px; margin-bottom:10px">
+          <button id="enableBtn" class="primary" style="flex:1">Enable Motion</button>
+          <button id="holdBtn" style="flex:1">Hold</button>
+        </div>
+        <div class="row" style="gap:10px; margin-bottom:14px">
+          <button id="calBtn" style="flex:1">Calibrate (Zero)</button>
+          <button id="resetBtn" class="danger" style="flex:1">Reset</button>
+        </div>
+
+        <div class="two">
+          <div>
+            <label>Axis</label>
+            <select id="axisSel">
+              <option value="beta">Pitch (front-back)</option>
+              <option value="gamma">Roll (left-right)</option>
+            </select>
+          </div>
+          <div>
+            <label>Run (mm) for rise/fall</label>
+            <input id="runInput" type="number" min="1" step="1" />
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="two">
+          <div>
+            <label>Flattest allowed (1:N)</label>
+            <input id="flatInput" type="number" min="1" step="1" />
+          </div>
+          <div>
+            <label>Steepest allowed (1:N)</label>
+            <input id="steepInput" type="number" min="1" step="1" />
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="hint">
+          <strong>How it decides GREEN/RED:</strong> measured <span class="mono">1:N</span> must be between your two limits (steepest ≤ measured ≤ flattest).
+          <br/>
+          <strong>iPhone/iPad note:</strong> motion/orientation access needs your tap and works best on <strong>HTTPS</strong>.
+        </div>
+
+        <div class="footer">
+          Tip: Open this page in <strong>Safari</strong>, tap <strong>Enable Motion</strong>, then use Safari’s <strong>Share</strong> button → <strong>Add to Home Screen</strong>.
+        </div>
+      </div>
+    </div>
+  </div>
 <script>
 (() => {
 
@@ -139,3 +373,5 @@ function update(angle){
 
 })();
 </script>
+</body>
+</html>
